@@ -180,7 +180,7 @@ export default function MainLayout() {
 
             {/* Link to Swagger Docs */}
             <a
-              href="http://localhost:5050/api-docs"
+              href={typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' ? '/api-docs' : 'http://localhost:5050/api-docs'}
               target="_blank"
               rel="noreferrer"
               className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-200 flex items-center gap-1 transition"
