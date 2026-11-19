@@ -188,7 +188,354 @@ export const analyzeRequest = async (requestId) => {
   };
 };
 
-// Retrieve System Data Context based on query keywords
+// ============================================================================
+// DYNAMIC FILTERING & QUERY ENGINE
+// Allows users to filter, query, and search any system data via natural language
+// ============================================================================
+async function executeFilterQuery(query) {
+  const lower = query.toLowerCase().trim();
+  const sources = [];
+
+  // 1. FILTER EMPLOYEES (Lọc Nhân sự theo phòng ban, vai trò, tài sản đang giữ)
+  const isEmployeeFilter =
+    lower.includes('nhân viên') ||
+    lower.includes('nhân sự') ||
+    lower.includes('danh sách nhân viên') ||
+    lower.includes('ai làm ở') ||
+    lower.includes('lọc theo phòng ban') ||
+    (lower.includes('lọc') && (lower.includes('tech') || lower.includes('kỹ thuật') || lower.includes('hr') || lower.includes('nhân sự') || lower.includes('kế toán') || lower.includes('kinh doanh')));
+
+  if (isEmployeeFilter && !lower.includes('hồ sơ') && !lower.includes('quy trình')) {
+    let deptCode = null;
+    let deptName = 'Tất cả phòng ban';
+
+    if (lower.includes('kỹ thuật') || lower.includes('tech') || lower.includes('công nghệ')) {
+      deptCode = 'TECH';
+      deptName = 'Phòng Kỹ thuật & Công nghệ (TECH)';
+    } else if (lower.includes('nhân sự') || lower.includes('hr')) {
+      deptCode = 'HR';
+      deptName = 'Phòng Nhân sự (HR)';
+    } else if (lower.includes('kế toán') || lower.includes('tài chính') || lower.includes('finance')) {
+      deptCode = 'FINANCE';
+      deptName = 'Phòng Kế toán & Tài chính (FINANCE)';
+    } else if (lower.includes('kinh doanh') || lower.includes('marketing') || lower.includes('biz')) {
+      deptCode = 'BIZ';
+      deptName = 'Phòng Kinh doanh & Marketing (BIZ)';
+    } else if (lower.includes('giám đốc') || lower.includes('bod')) {
+      deptCode = 'BOD';
+      deptName = 'Ban Giám Đốc (BOD)';
+    }
+
+    const whereClause = {};
+    if (deptCode) {
+      whereClause.department = { code: deptCode };
+    }
+
+    const employees = await prisma.employee.findMany({
+      where: whereClause,
+      include: {
+        department: true,
+        assignments: {
+          include: { asset: true },
+          where: { returnedAt: null },
+        },
+        requests: {
+          select: { requestCode: true, status: true, riskLevel: true },
+        },
+      },
+      orderBy: { employeeCode: 'asc' },
+    });
+
+    sources.push(`Lọc Nhân sự: ${deptName} (${employees.length} nhân viên)`);
+
+    let response = `### 👥 Kết quả Lọc Nhân sự: **${deptName}**\n\n`;
+    response += `Hệ thống tìm thấy **${employees.length} nhân sự** phù hợp với điều kiện lọc:\n\n`;
+
+    response += `| STT | Mã NV | Họ và Tên | Chức danh | Phòng ban | Tài sản đang giữ | Hồ sơ thôi việc |\n`;
+    response += `| --- | --- | --- | --- | --- | --- | --- |\n`;
+
+    employees.forEach((e, idx) => {
+      const assetsCount = e.assignments.length > 0 ? `${e.assignments.length} thiết bị` : 'Không';
+      const offStatus = e.requests.length > 0 ? e.requests.map((r) => `\`${r.requestCode}\` (${r.status})`).join(', ') : 'Không có';
+      response += `| ${idx + 1} | **${e.employeeCode}** | ${e.fullName} | ${e.jobTitle || 'Chuyên viên'} | ${e.department?.name || 'N/A'} | ${assetsCount} | ${offStatus} |\n`;
+    });
+
+    response += `\n> **Gợi ý tra cứu tiếp:** Bạn có thể hỏi *"Kiểm tra tài sản của [Tên nhân viên]"* hoặc *"Phân tích hồ sơ thôi việc của nhân viên này"* để xem chi tiết.`;
+    return { reply: response, sources };
+  }
+
+  // 2. FILTER OFFBOARDING REQUESTS (Lọc hồ sơ thôi việc theo trạng thái, mức rủi ro, nhân viên)
+  const isRequestFilter =
+    lower.includes('hồ sơ') ||
+    lower.includes('thôi việc') ||
+    lower.includes('nghỉ việc') ||
+    lower.includes('offboarding') ||
+    lower.includes('đang xử lý') ||
+    lower.includes('chờ duyệt') ||
+    lower.includes('rủi ro cao');
+
+  if (isRequestFilter && !lower.includes('quy trình bàn giao') && !lower.includes('sop')) {
+    const whereClause = {};
+    let filterDesc = 'Tất cả hồ sơ thôi việc';
+
+    if (lower.includes('đang xử lý') || lower.includes('in_progress')) {
+      whereClause.status = 'IN_PROGRESS';
+      filterDesc = 'Trạng thái: Đang xử lý (IN_PROGRESS)';
+    } else if (lower.includes('chờ duyệt') || lower.includes('pending')) {
+      whereClause.status = { in: ['SUBMITTED', 'PENDING_APPROVAL'] };
+      filterDesc = 'Trạng thái: Đang chờ phê duyệt';
+    } else if (lower.includes('hoàn thành') || lower.includes('completed')) {
+      whereClause.status = 'COMPLETED';
+      filterDesc = 'Trạng thái: Đã hoàn tất (COMPLETED)';
+    } else if (lower.includes('cao') || lower.includes('rủi ro cao') || lower.includes('high') || lower.includes('critical')) {
+      whereClause.riskLevel = { in: ['HIGH', 'CRITICAL'] };
+      filterDesc = 'Mức rủi ro: CAO / NGUY HIỂM';
+    }
+
+    // Specific request code
+    const reqMatch = query.match(/OFF-[\w-]+/i);
+    if (reqMatch) {
+      whereClause.requestCode = { contains: reqMatch[0] };
+      filterDesc = `Mã hồ sơ: ${reqMatch[0]}`;
+    }
+
+    const requests = await prisma.offboardingRequest.findMany({
+      where: whereClause,
+      include: {
+        employee: {
+          include: {
+            department: true,
+            assignments: {
+              include: { asset: true },
+              where: { returnedAt: null },
+            },
+          },
+        },
+        tasks: true,
+        approvals: { include: { approver: true }, orderBy: { step: 'asc' } },
+        revocations: { include: { account: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    sources.push(`Lọc Hồ sơ: ${filterDesc} (${requests.length} hồ sơ)`);
+
+    let response = `### 📋 Kết quả Lọc Hồ sơ Thôi việc: **${filterDesc}**\n\n`;
+    response += `Hệ thống ghi nhận **${requests.length} hồ sơ** thỏa mãn điều kiện:\n\n`;
+
+    if (requests.length === 0) {
+      response += `Không tìm thấy hồ sơ nào phù hợp với bộ lọc này.\n`;
+      return { reply: response, sources };
+    }
+
+    response += `| Mã hồ sơ | Nhân viên | Phòng ban | Trạng thái | Mức rủi ro | Ngày làm việc cuối | Tài sản chưa trả | Quyền chưa khóa |\n`;
+    response += `| --- | --- | --- | --- | --- | --- | --- | --- |\n`;
+
+    requests.forEach((r) => {
+      const lastDate = r.lastWorkingDate ? new Date(r.lastWorkingDate).toLocaleDateString('vi-VN') : 'Chưa định';
+      const unreturned = r.employee.assignments.length > 0 ? `${r.employee.assignments.length} thiết bị` : '✅ Đã trả hết';
+      const pendingAccounts = r.revocations.filter((rv) => rv.status !== 'REVOKED').length;
+      const accText = pendingAccounts > 0 ? `⏳ ${pendingAccounts} tài khoản` : '✅ Đã khóa hết';
+
+      response += `| **${r.requestCode}** | ${r.employee.fullName} (${r.employee.employeeCode}) | ${r.employee.department?.name || 'N/A'} | \`${r.status}\` | \`${r.riskLevel || 'LOW'}\` | ${lastDate} | ${unreturned} | ${accText} |\n`;
+    });
+
+    // Detail for first request
+    if (requests.length > 0) {
+      const first = requests[0];
+      response += `\n#### 📌 Chi tiết tiến độ hồ sơ tiêu biểu: **${first.requestCode}** (${first.employee.fullName})\n`;
+      response += `- **Nhiệm vụ bàn giao:** ${first.tasks.filter((t) => t.status === 'COMPLETED').length}/${first.tasks.length} đầu việc hoàn thành.\n`;
+      if (first.approvals.length > 0) {
+        response += `- **Tiến độ phê duyệt đa cấp:**\n`;
+        first.approvals.forEach((ap) => {
+          const map = { PENDING: '⏳ Chờ duyệt', APPROVED: '✅ Đã duyệt', REJECTED: '❌ Từ chối' };
+          response += `  + Bước ${ap.step} (${ap.approver.fullName}): ${map[ap.status] || ap.status}\n`;
+        });
+      }
+    }
+
+    return { reply: response, sources };
+  }
+
+  // 3. FILTER ASSETS (Lọc tài sản thiết bị theo trạng thái cấp phát, người giữ)
+  const isAssetFilter =
+    lower.includes('tài sản') ||
+    lower.includes('thiết bị') ||
+    lower.includes('laptop') ||
+    lower.includes('máy tính') ||
+    lower.includes('màn hình') ||
+    lower.includes('thẻ từ') ||
+    lower.includes('chưa thu hồi') ||
+    lower.includes('thu hồi tài sản');
+
+  if (isAssetFilter && !lower.includes('chính sách thu hồi tài sản')) {
+    const whereClause = {};
+    let filterDesc = 'Toàn bộ danh mục tài sản';
+
+    if (lower.includes('chưa thu hồi') || lower.includes('đang cấp phát') || lower.includes('đang giữ') || lower.includes('assigned')) {
+      whereClause.status = 'ASSIGNED';
+      filterDesc = 'Tài sản đang cấp phát / Chưa thu hồi';
+    } else if (lower.includes('trong kho') || lower.includes('sẵn sàng') || lower.includes('available')) {
+      whereClause.status = 'AVAILABLE';
+      filterDesc = 'Tài sản sẵn sàng trong kho';
+    }
+
+    const assets = await prisma.asset.findMany({
+      where: whereClause,
+      include: {
+        assignments: {
+          include: { employee: { include: { department: true } } },
+          where: { returnedAt: null },
+        },
+      },
+      orderBy: { assetCode: 'asc' },
+    });
+
+    sources.push(`Lọc Tài sản: ${filterDesc} (${assets.length} thiết bị)`);
+
+    let response = `### 💻 Kết quả Lọc Tài sản & Thiết bị: **${filterDesc}**\n\n`;
+    response += `Hệ thống ghi nhận **${assets.length} thiết bị**:\n\n`;
+
+    response += `| Mã tài sản | Tên thiết bị | Danh mục | Trạng thái | Người đang giữ | Mã NV | Phòng ban |\n`;
+    response += `| --- | --- | --- | --- | --- | --- | --- |\n`;
+
+    assets.forEach((a) => {
+      const holder = a.assignments.length > 0 ? a.assignments[0].employee : null;
+      const holderName = holder ? holder.fullName : '🟢 Trong kho';
+      const holderCode = holder ? holder.employeeCode : '-';
+      const holderDept = holder?.department ? holder.department.name : '-';
+
+      response += `| **${a.assetCode}** | ${a.name} | ${a.category} | \`${a.status}\` | **${holderName}** | ${holderCode} | ${holderDept} |\n`;
+    });
+
+    response += `\n> **Quy chế bàn giao (POL-02):** Tất cả thiết bị phải được kiểm tra số Serial, hiện trạng vật lý và hoàn tất biên bản thu hồi trước khi phê duyệt bước IT.`;
+    return { reply: response, sources };
+  }
+
+  // 4. FILTER ACCOUNTS (Lọc tài khoản hệ thống & quyền truy cập cloud)
+  const isAccountFilter =
+    lower.includes('tài khoản') ||
+    lower.includes('truy cập') ||
+    lower.includes('quyền') ||
+    lower.includes('aws') ||
+    lower.includes('github') ||
+    lower.includes('google workspace') ||
+    lower.includes('khóa quyền');
+
+  if (isAccountFilter && !lower.includes('thời điểm thu hồi')) {
+    const whereClause = {};
+    let filterDesc = 'Danh mục tài khoản hệ thống';
+
+    if (lower.includes('chưa thu hồi') || lower.includes('chờ khóa') || lower.includes('pending')) {
+      filterDesc = 'Tài khoản đang chờ thu hồi quyền (PENDING)';
+    }
+
+    const accounts = await prisma.accessAccount.findMany({
+      where: whereClause,
+      include: {
+        revocations: {
+          include: { request: { include: { employee: true } } },
+        },
+      },
+    });
+
+    sources.push(`Lọc Quyền truy cập: ${filterDesc} (${accounts.length} tài khoản)`);
+
+    let response = `### 🔐 Kết quả Lọc Tài khoản & Quyền truy cập Hệ thống\n\n`;
+    response += `Hệ thống quản lý **${accounts.length} tài khoản trọng yếu**:\n\n`;
+
+    response += `| Hệ thống | Tên tài khoản | Mã nhân viên | Nhân viên sở hữu | Trạng thái thu hồi | Hạn chót thu hồi |\n`;
+    response += `| --- | --- | --- | --- | --- | --- |\n`;
+
+    accounts.forEach((acc) => {
+      const rev = acc.revocations.length > 0 ? acc.revocations[0] : null;
+      const empName = rev?.request?.employee?.fullName || 'N/A';
+      const revStatus = rev ? `\`${rev.status}\`` : '`ACTIVE`';
+      const deadline = rev?.request?.lastWorkingDate
+        ? `${new Date(rev.request.lastWorkingDate).toLocaleDateString('vi-VN')} lúc 17h30`
+        : '17h30 ngày làm việc cuối';
+
+      response += `| **${acc.systemName}** | ${acc.accountName} | ${acc.employeeCode} | ${empName} | ${revStatus} | ${deadline} |\n`;
+    });
+
+    response += `\n> **Quy chuẩn an toàn (SEC-03):** Toàn bộ tài khoản AWS IAM, GitHub Enterprise và Google Workspace phải được chuyển sang chế độ vô hiệu hóa đúng **17h30 ngày làm việc cuối cùng**.`;
+    return { reply: response, sources };
+  }
+
+  // 5. FILTER RESIGNATIONS (Lọc đơn xin thôi việc)
+  if (lower.includes('đơn xin nghỉ') || lower.includes('đơn từ chức') || lower.includes('resignation')) {
+    const resignations = await prisma.resignationRequest.findMany({
+      include: { employee: { include: { department: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    sources.push(`Lọc Đơn xin nghỉ: ${resignations.length} đơn`);
+
+    let response = `### 📄 Kết quả Lọc Đơn xin Thôi việc trên Hệ thống\n\n`;
+    response += `Hệ thống ghi nhận **${resignations.length} đơn từ chức**:\n\n`;
+
+    response += `| Mã đơn | Nhân viên | Phòng ban | Ngày nộp đơn | Ngày dự kiến nghỉ | Trạng thái duyệt | Lý do |\n`;
+    response += `| --- | --- | --- | --- | --- | --- | --- |\n`;
+
+    resignations.forEach((r) => {
+      const resignDate = new Date(r.resignationDate).toLocaleDateString('vi-VN');
+      const lastDate = new Date(r.lastWorkingDate).toLocaleDateString('vi-VN');
+      response += `| **${r.requestCode}** | ${r.employee.fullName} | ${r.employee.department?.name || 'N/A'} | ${resignDate} | ${lastDate} | \`${r.status}\` | ${r.reason || 'N/A'} |\n`;
+    });
+
+    return { reply: response, sources };
+  }
+
+  // 6. FILTER FINANCIAL RECONCILIATIONS (Lọc công nợ, đối soát tài chính)
+  if (lower.includes('công nợ') || lower.includes('tài chính') || lower.includes('tạm ứng') || lower.includes('quyết toán')) {
+    const finances = await prisma.financialReconciliation.findMany({
+      include: { request: { include: { employee: true } } },
+    });
+
+    sources.push(`Lọc Tài chính: ${finances.length} hồ sơ đối soát`);
+
+    let response = `### 💰 Kết quả Lọc Đối soát Tài chính & Công nợ\n\n`;
+    response += `Hệ thống ghi nhận **${finances.length} hồ sơ đối soát tài chính**:\n\n`;
+
+    response += `| Mã hồ sơ | Nhân viên | Tiền tạm ứng | Khoản nợ công ty | Chi phí chưa quyết toán | Trạng thái |\n`;
+    response += `| --- | --- | --- | --- | --- | --- |\n`;
+
+    finances.forEach((f) => {
+      const emp = f.request?.employee?.fullName || 'N/A';
+      response += `| **${f.request?.requestCode || 'N/A'}** | ${emp} | ${Number(f.advanceAmount).toLocaleString('vi-VN')} đ | ${Number(f.debtAmount).toLocaleString('vi-VN')} đ | ${Number(f.unsettledExpense).toLocaleString('vi-VN')} đ | \`${f.status}\` |\n`;
+    });
+
+    response += `\n> **Chính sách (FIN-04):** Toàn bộ các khoản tạm ứng và số dư nợ phải đạt trạng thái \`CLEARED\` (bằng 0 hoặc đã khấu trừ vào kỳ lương cuối) trước khi duyệt bước Kế toán.`;
+    return { reply: response, sources };
+  }
+
+  // 7. FILTER EXCEPTIONS (Lọc sự cố & ngoại lệ quy trình)
+  if (lower.includes('ngoại lệ') || lower.includes('sự cố') || lower.includes('exception') || lower.includes('mất tài sản')) {
+    const exceptions = await prisma.processException.findMany({
+      include: { request: { include: { employee: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    sources.push(`Lọc Ngoại lệ: ${exceptions.length} phiếu`);
+
+    let response = `### ⚠️ Kết quả Lọc Phiếu Ngoại lệ & Sự cố Quy trình\n\n`;
+    response += `Hệ thống ghi nhận **${exceptions.length} trường hợp ngoại lệ**:\n\n`;
+
+    response += `| Tiêu đề sự cố | Phân loại | Mức ưu tiên | Trạng thái | Hồ sơ liên quan | Nhân viên |\n`;
+    response += `| --- | --- | --- | --- | --- | --- |\n`;
+
+    exceptions.forEach((ex) => {
+      response += `| **${ex.title}** | \`${ex.type}\` | \`${ex.priority}\` | \`${ex.status}\` | **${ex.request?.requestCode || 'N/A'}** | ${ex.request?.employee?.fullName || 'N/A'} |\n`;
+    });
+
+    return { reply: response, sources };
+  }
+
+  // If no specific filter triggered, return null to continue general synthesis
+  return null;
+}
+
+// Retrieve General System Context for fallback or LLM
 async function gatherSystemContext(query) {
   const lower = query.toLowerCase().trim();
   const context = {
@@ -196,20 +543,14 @@ async function gatherSystemContext(query) {
     matchedEmployees: [],
     matchedAssets: [],
     matchedAccounts: [],
-    matchedTasks: [],
     matchedKnowledge: [],
     statistics: null,
     sources: [],
   };
 
-  // 1. Check for Request Code regex (e.g. OFF-2026-001, RES-...)
+  // Check for Request Code regex
   const reqMatch = query.match(/OFF-[\w-]+/i);
-
-  // 2. Fetch requests
-  const requestWhere = {};
-  if (reqMatch) {
-    requestWhere.requestCode = { contains: reqMatch[0] };
-  }
+  const requestWhere = reqMatch ? { requestCode: { contains: reqMatch[0] } } : {};
 
   const offRequests = await prisma.offboardingRequest.findMany({
     where: requestWhere,
@@ -228,8 +569,6 @@ async function gatherSystemContext(query) {
       approvals: { include: { approver: true }, orderBy: { step: 'asc' } },
       revocations: { include: { account: true } },
       handovers: { include: { items: true } },
-      financialReconciliations: true,
-      exceptions: true,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -237,20 +576,16 @@ async function gatherSystemContext(query) {
   if (offRequests.length > 0) {
     context.matchedRequests = offRequests;
     offRequests.forEach((r) => {
-      context.sources.push(`Hồ sơ thôi việc: ${r.requestCode} (${r.employee.fullName})`);
+      context.sources.push(`Hồ sơ: ${r.requestCode} (${r.employee.fullName})`);
     });
   }
 
-  // 3. Search Employees
+  // Employees lookup
   const allEmployees = await prisma.employee.findMany({
     include: {
       department: true,
-      assignments: {
-        include: { asset: true },
-      },
-      requests: {
-        select: { requestCode: true, status: true, riskLevel: true, lastWorkingDate: true },
-      },
+      assignments: { include: { asset: true }, where: { returnedAt: null } },
+      requests: { select: { requestCode: true, status: true, riskLevel: true } },
     },
   });
 
@@ -258,8 +593,7 @@ async function gatherSystemContext(query) {
     const nameLower = emp.fullName.toLowerCase();
     const codeLower = emp.employeeCode.toLowerCase();
     const parts = nameLower.split(' ');
-    const lastName = parts[parts.length - 1]; // e.g. Bách, Hoa, Mạnh
-
+    const lastName = parts[parts.length - 1];
     return (
       lower.includes(nameLower) ||
       lower.includes(codeLower) ||
@@ -269,172 +603,80 @@ async function gatherSystemContext(query) {
 
   if (matchingEmps.length > 0) {
     context.matchedEmployees = matchingEmps;
-    matchingEmps.forEach((e) => {
-      context.sources.push(`Nhân viên: ${e.fullName} (${e.employeeCode})`);
-    });
+    matchingEmps.forEach((e) => context.sources.push(`Nhân viên: ${e.fullName} (${e.employeeCode})`));
   }
 
-  // 4. Search Assets
-  if (
-    lower.includes('tài sản') ||
-    lower.includes('laptop') ||
-    lower.includes('máy tính') ||
-    lower.includes('màn hình') ||
-    lower.includes('thiết bị') ||
-    lower.includes('thẻ') ||
-    lower.includes('ast-')
-  ) {
-    const assets = await prisma.asset.findMany({
-      include: {
-        assignments: {
-          include: { employee: true },
-          where: { returnedAt: null },
-        },
-      },
-      take: 10,
-    });
-    context.matchedAssets = assets;
-    assets.slice(0, 3).forEach((a) => {
-      context.sources.push(`Tài sản: ${a.assetCode} - ${a.name}`);
-    });
-  }
+  // Assets lookup
+  const assets = await prisma.asset.findMany({
+    include: { assignments: { include: { employee: true }, where: { returnedAt: null } } },
+    take: 10,
+  });
+  context.matchedAssets = assets;
 
-  // 5. Search Accounts & Revocations
-  if (
-    lower.includes('tài khoản') ||
-    lower.includes('truy cập') ||
-    lower.includes('quyền') ||
-    lower.includes('aws') ||
-    lower.includes('github') ||
-    lower.includes('google') ||
-    lower.includes('workspace') ||
-    lower.includes('revocation')
-  ) {
-    const accounts = await prisma.accessAccount.findMany({
-      include: {
-        revocations: {
-          include: { request: true },
-        },
-      },
-      take: 10,
-    });
-    context.matchedAccounts = accounts;
-    accounts.slice(0, 3).forEach((acc) => {
-      context.sources.push(`Tài khoản bảo mật: ${acc.systemName} (${acc.accountName})`);
-    });
-  }
+  // Accounts lookup
+  const accounts = await prisma.accessAccount.findMany({
+    include: { revocations: true },
+    take: 10,
+  });
+  context.matchedAccounts = accounts;
 
-  // 6. Search RAG Knowledge Chunks
+  // Knowledge base
   await ensureKnowledgeBase();
   const allKnowledge = await prisma.knowledgeChunk.findMany();
-  const matchedChunks = allKnowledge.filter((k) => {
-    const contentLower = k.content.toLowerCase();
-    const sourceLower = k.sourceName.toLowerCase();
-    const keywords = ['bàn giao', 'quy trình', 'tài sản', 'tài khoản', 'bảo mật', 'quy định', 'thôi việc', 'quyết toán', 'tài chính', 'ngoại lệ'];
-    return keywords.some((kw) => lower.includes(kw) && (contentLower.includes(kw) || sourceLower.includes(kw)));
-  });
+  context.matchedKnowledge = allKnowledge;
 
-  context.matchedKnowledge = matchedChunks.length > 0 ? matchedChunks : allKnowledge.slice(0, 2);
-  context.matchedKnowledge.forEach((k) => {
-    context.sources.push(`Quy chế RAG: ${k.sourceName}`);
-  });
-
-  // 7. General Statistics & System Overview
-  const totalEmployees = await prisma.employee.count();
-  const totalRequests = await prisma.offboardingRequest.count();
-  const pendingRequests = await prisma.offboardingRequest.count({
-    where: { status: { in: ['SUBMITTED', 'IN_PROGRESS', 'PENDING_APPROVAL'] } },
-  });
-  const totalAssets = await prisma.asset.count();
-  const assignedAssets = await prisma.asset.count({ where: { status: 'ASSIGNED' } });
-  const pendingApprovals = await prisma.approval.count({ where: { status: 'PENDING' } });
+  // Statistics
+  const [totalEmployees, totalRequests, totalAssets, assignedAssets, pendingApprovals] = await Promise.all([
+    prisma.employee.count(),
+    prisma.offboardingRequest.count(),
+    prisma.asset.count(),
+    prisma.asset.count({ where: { status: 'ASSIGNED' } }),
+    prisma.approval.count({ where: { status: 'PENDING' } }),
+  ]);
 
   context.statistics = {
     totalEmployees,
     totalRequests,
-    pendingRequests,
     totalAssets,
     assignedAssets,
     pendingApprovals,
   };
 
-  // Deduplicate sources
   context.sources = [...new Set(context.sources)];
-
   return context;
 }
 
-// Format system context into text for LLM or intelligent synthesis
+// Format system context into text
 function buildContextString(systemCtx) {
   const parts = [];
 
-  // Stats
   if (systemCtx.statistics) {
     const s = systemCtx.statistics;
-    parts.push(`[THỐNG KÊ HỆ THỐNG]:
-- Tổng số nhân viên: ${s.totalEmployees}
-- Tổng hồ sơ thôi việc: ${s.totalRequests} (Đang xử lý: ${s.pendingRequests})
-- Tổng tài sản thiết bị: ${s.totalAssets} (Đang cấp phát/chưa thu hồi: ${s.assignedAssets})
-- Bước phê duyệt đang chờ: ${s.pendingApprovals}`);
+    parts.push(`[THỐNG KÊ TOÀN BỘ HỆ THỐNG]:
+- Tổng số nhân sự: ${s.totalEmployees}
+- Tổng hồ sơ thôi việc: ${s.totalRequests}
+- Tổng tài sản thiết bị: ${s.totalAssets} (Đang cấp phát: ${s.assignedAssets})
+- Phê duyệt đang chờ: ${s.pendingApprovals}`);
   }
 
-  // Requests
   if (systemCtx.matchedRequests.length > 0) {
-    parts.push(`[DANH SÁCH HỒ SƠ THÔI VIỆC TRÊN HỆ THỐNG]:`);
+    parts.push(`[DANH SÁCH HỒ SƠ THÔI VIỆC]:`);
     systemCtx.matchedRequests.forEach((r) => {
-      const unreturned = r.employee.assignments.map((a) => `${a.asset.name} (${a.asset.assetCode})`).join(', ') || 'Đã hoàn tất thu hồi';
-      const revocations = r.revocations.map((rv) => `${rv.account.systemName}: ${rv.status}`).join('; ') || 'Không có';
-      const approvals = r.approvals.map((ap) => `B${ap.step} (${ap.approver.fullName}): ${ap.status}`).join(' | ');
-      const completedTasks = r.tasks.filter((t) => t.status === 'COMPLETED').length;
-      const totalTasks = r.tasks.length;
-
-      parts.push(`- Hồ sơ: ${r.requestCode}
-  + Nhân viên: ${r.employee.fullName} (Mã: ${r.employee.employeeCode}, Chức vụ: ${r.employee.jobTitle || 'N/A'}, Phòng ban: ${r.employee.department?.name || 'N/A'})
-  + Trạng thái: ${r.status} | Đánh giá rủi ro: ${r.riskLevel || 'Chưa đánh giá'}
-  + Ngày xin thôi việc: ${r.resignationDate ? new Date(r.resignationDate).toLocaleDateString('vi-VN') : 'N/A'}
-  + Ngày làm việc cuối: ${r.lastWorkingDate ? new Date(r.lastWorkingDate).toLocaleDateString('vi-VN') : 'N/A'}
-  + Tài sản đang giữ chưa thu hồi: ${unreturned}
-  + Tài khoản quyền truy cập: ${revocations}
-  + Tiến độ nhiệm vụ: ${completedTasks}/${totalTasks} hoàn thành
-  + Tiến độ phê duyệt: ${approvals}`);
+      const unreturned = r.employee.assignments.map((a) => a.asset.name).join(', ') || 'Đã hoàn tất thu hồi';
+      const revs = r.revocations.map((rv) => `${rv.account.systemName}: ${rv.status}`).join('; ') || 'Không có';
+      parts.push(`- Hồ sơ ${r.requestCode}: Nhân viên ${r.employee.fullName} (${r.employee.employeeCode}) | Phòng: ${r.employee.department?.name} | Trạng thái: ${r.status} | Rủi ro: ${r.riskLevel || 'N/A'} | Tài sản chưa trả: ${unreturned} | Quyền tài khoản: ${revs}`);
     });
   }
 
-  // Employees
   if (systemCtx.matchedEmployees.length > 0) {
-    parts.push(`[THÔNG TIN NHÂN VIÊN TRÊN HỆ THỐNG]:`);
+    parts.push(`[DANH SÁCH NHÂN VIÊN]:`);
     systemCtx.matchedEmployees.forEach((e) => {
-      const assets = e.assignments.filter((a) => !a.returnedAt).map((a) => a.asset.name).join(', ') || 'Không giữ tài sản nào';
-      const reqStatus = e.requests.map((rq) => `${rq.requestCode} (${rq.status})`).join(', ') || 'Không có hồ sơ thôi việc';
-      parts.push(`- Nhân viên: ${e.fullName} (${e.employeeCode})
-  + Chức danh: ${e.jobTitle || 'N/A'} - Phòng ban: ${e.department?.name || 'N/A'}
-  + Email: ${e.email || 'N/A'} | ĐT: ${e.phone || 'N/A'}
-  + Tài sản đang giữ: ${assets}
-  + Hồ sơ thôi việc liên quan: ${reqStatus}`);
+      parts.push(`- ${e.employeeCode}: ${e.fullName} | Phòng: ${e.department?.name} | Chức danh: ${e.jobTitle || 'N/A'} | Tài sản đang giữ: ${e.assignments.length} thiết bị`);
     });
   }
 
-  // Assets
-  if (systemCtx.matchedAssets.length > 0) {
-    parts.push(`[DANH MỤC TÀI SẢN THIẾT BỊ]:`);
-    systemCtx.matchedAssets.forEach((a) => {
-      const holder = a.assignments.length > 0 ? a.assignments[0].employee.fullName : 'Sẵn sàng trong kho';
-      parts.push(`- ${a.assetCode}: ${a.name} | Trạng thái: ${a.status} | Người đang giữ: ${holder}`);
-    });
-  }
-
-  // Accounts
-  if (systemCtx.matchedAccounts.length > 0) {
-    parts.push(`[TÀI KHOẢN VÀ QUYỀN TRUY CẬP HỆ THỐNG]:`);
-    systemCtx.matchedAccounts.forEach((acc) => {
-      const revStatus = acc.revocations.length > 0 ? acc.revocations.map((r) => r.status).join(', ') : 'Chưa có yêu cầu thu hồi';
-      parts.push(`- ${acc.systemName} (${acc.accountName}) - Nhân viên mã: ${acc.employeeCode} | Trạng thái thu hồi: ${revStatus}`);
-    });
-  }
-
-  // Knowledge Chunks
   if (systemCtx.matchedKnowledge.length > 0) {
-    parts.push(`[QUY CHẾ & QUY TRÌNH NỘI BỘ (RAG KNOWLEDGE)]:`);
+    parts.push(`[QUY CHẾ NỘI BỘ (RAG KNOWLEDGE)]:`);
     systemCtx.matchedKnowledge.forEach((k) => {
       parts.push(`--- ${k.sourceName} ---\n${k.content}`);
     });
@@ -443,223 +685,65 @@ function buildContextString(systemCtx) {
   return parts.join('\n\n');
 }
 
-// Built-in intelligent synthesis engine (Deterministic and 100% grounded in system data)
-function synthesizeResponse(query, systemCtx) {
+// General Synthesis Engine
+function synthesizeGeneralResponse(query, systemCtx) {
   const lower = query.toLowerCase();
 
-  // 1. Statistics / Overview / Aggregate metrics
-  if (
-    lower.includes('thống kê') ||
-    lower.includes('tổng quan') ||
-    lower.includes('bao nhiêu') ||
-    lower.includes('báo cáo')
-  ) {
+  // Overview / Stats
+  if (lower.includes('thống kê') || lower.includes('tổng quan') || lower.includes('bao nhiêu')) {
     const s = systemCtx.statistics;
-    let response = `### 📊 Tổng quan Dữ liệu Toàn Hệ thống EXITCONTROL\n\n`;
-    response += `* **Tổng số nhân sự:** **${s.totalEmployees}** nhân viên thuộc các phòng ban (BOD, HR, TECH, FINANCE, BIZ)\n`;
-    response += `* **Hồ sơ thôi việc:** **${s.totalRequests}** hồ sơ (**${s.pendingRequests}** hồ sơ đang trong quy trình xử lý)\n`;
-    response += `* **Quản trị tài sản:** **${s.totalAssets}** thiết bị vật lý (**${s.assignedAssets}** thiết bị đang được bàn giao/chưa thu hồi)\n`;
-    response += `* **Phê duyệt đang chờ:** **${s.pendingApprovals}** bước duyệt cần cấp quản lý xử lý\n\n`;
+    let res = `### 📊 Tổng quan Dữ liệu Toàn Hệ thống EXITCONTROL\n\n`;
+    res += `* **Tổng số nhân sự:** **${s.totalEmployees}** nhân sự thuộc các phòng ban (TECH, HR, FINANCE, BIZ, BOD)\n`;
+    res += `* **Hồ sơ thôi việc:** **${s.totalRequests}** hồ sơ đang được quản lý\n`;
+    res += `* **Quản trị tài sản:** **${s.totalAssets}** thiết bị vật lý (**${s.assignedAssets}** đang cấp phát)\n`;
+    res += `* **Phê duyệt đang chờ:** **${s.pendingApprovals}** bước duyệt cần xử lý\n\n`;
 
     if (systemCtx.matchedRequests.length > 0) {
-      response += `#### 📋 Các hồ sơ thôi việc gần nhất:\n`;
+      res += `#### 📋 Danh sách hồ sơ gần nhất:\n`;
       systemCtx.matchedRequests.forEach((r) => {
-        response += `- **${r.requestCode}**: ${r.employee.fullName} (${r.employee.jobTitle || 'Nhân viên'}) - Trạng thái: \`${r.status}\` - Rủi ro: \`${r.riskLevel || 'LOW'}\`\n`;
+        res += `- **${r.requestCode}**: ${r.employee.fullName} (${r.employee.jobTitle || 'Nhân viên'}) - Trạng thái: \`${r.status}\` - Rủi ro: \`${r.riskLevel || 'LOW'}\`\n`;
       });
     }
-
-    return response;
+    return res;
   }
 
-  // 2. Specific Request lookup (e.g. OFF-2026-001)
-  const isReqQuery =
-    lower.includes('off-') ||
-    lower.includes('res-') ||
-    lower.includes('hồ sơ') ||
-    (systemCtx.matchedRequests.length === 1 && !lower.includes('quy trình') && !lower.includes('bàn giao'));
-
-  if (systemCtx.matchedRequests.length > 0 && isReqQuery) {
-    const r = systemCtx.matchedRequests[0];
-    const unreturned = r.employee.assignments;
-    const completedTasks = r.tasks.filter((t) => t.status === 'COMPLETED').length;
-
-    let response = `### 📋 Thông tin hồ sơ thôi việc: **${r.requestCode}**\n\n`;
-    response += `* **Nhân viên:** ${r.employee.fullName} (${r.employee.employeeCode})\n`;
-    response += `* **Chức danh:** ${r.employee.jobTitle || 'Chuyên viên'} - **Phòng ban:** ${r.employee.department?.name || 'Kỹ thuật'}\n`;
-    response += `* **Ngày làm việc cuối (Last Working Date):** ${r.lastWorkingDate ? new Date(r.lastWorkingDate).toLocaleDateString('vi-VN') : 'Chưa xác định'}\n`;
-    response += `* **Trạng thái:** \`${r.status}\` | **Mức rủi ro hệ thống:** \`${r.riskLevel || 'MEDIUM'}\`\n\n`;
-
-    response += `#### 💻 Tình trạng tài sản thiết bị:\n`;
-    if (unreturned.length > 0) {
-      response += `Nhân viên hiện đang giữ **${unreturned.length} tài sản chưa thu hồi**:\n`;
-      unreturned.forEach((a) => {
-        response += `- **${a.asset.assetCode}**: ${a.asset.name} (Trạng thái: \`${a.asset.status}\`)\n`;
-      });
-      response += `> *Khuyến nghị:* Cần lập biên bản kiểm tra tình trạng vật lý và hoàn tất thu hồi trước 16h00 ngày làm việc cuối.\n\n`;
-    } else {
-      response += `✅ Đã thu hồi toàn bộ tài sản thiết bị được giao.\n\n`;
-    }
-
-    response += `#### 🔐 Quyền truy cập & Tài khoản bảo mật:\n`;
-    if (r.revocations.length > 0) {
-      r.revocations.forEach((rv) => {
-        const icon = rv.status === 'REVOKED' ? '✅' : '⏳';
-        response += `- ${icon} **${rv.account.systemName}** (${rv.account.accountName}): Trạng thái \`${rv.status}\`\n`;
-      });
-      response += `> *Thời hạn chuẩn:* Đúng **17h30 ngày làm việc cuối cùng**, IT Support phải vô hiệu hóa toàn bộ quyền truy cập cloud/mã nguồn.\n\n`;
-    } else {
-      response += `Không có tài khoản quyền truy cập đặc biệt nào cần theo dõi.\n\n`;
-    }
-
-    response += `#### 📊 Tiến độ thực hiện & Phê duyệt:\n`;
-    response += `- **Nhiệm vụ bàn giao:** Đã hoàn thành ${completedTasks}/${r.tasks.length} đầu việc.\n`;
-    if (r.approvals.length > 0) {
-      response += `- **Luồng duyệt đa cấp:**\n`;
-      r.approvals.forEach((ap) => {
-        const statusMap = { PENDING: '⏳ Chờ duyệt', APPROVED: '✅ Đã duyệt', REJECTED: '❌ Từ chối' };
-        response += `  + Bước ${ap.step} (${ap.approver.fullName}): ${statusMap[ap.status] || ap.status}\n`;
-      });
-    }
-
-    return response;
+  // Quy trình bàn giao SOP-01
+  if (lower.includes('quy trình') || lower.includes('bàn giao') || lower.includes('sop')) {
+    let res = `### 📖 Quy chế Bàn giao công việc & Quy trình Thôi việc Chuẩn\n\n`;
+    res += `Căn cứ theo tài liệu quy chuẩn **SOP-01 (Nexora ExitControl)**, quy trình thôi việc bao gồm **6 giai đoạn** chính:\n\n`;
+    res += `1. **Tiếp nhận & Đăng ký hồ sơ:** Nhân viên nộp đơn hoặc Quản lý trực tiếp tạo hồ sơ thôi việc trên hệ thống.\n`;
+    res += `2. **Tự động sinh nhiệm vụ:** Hệ thống phân bổ danh mục đầu việc theo phòng ban (kỹ thuật, hành chính, tài chính).\n`;
+    res += `3. **Bàn giao chuyên môn & Mã nguồn:** Bàn giao tài liệu kiến trúc, quyền admin repo GitHub, Confluence cho người kế nhiệm trước tối thiểu 03 ngày.\n`;
+    res += `4. **Kiểm định & Thu hồi tài sản:** IT kiểm tra số Serial, hiện trạng laptop, màn hình, thẻ từ và lập biên bản có chữ ký.\n`;
+    res += `5. **Vô hiệu hóa quyền truy cập:** Khóa tài khoản Cloud AWS, thu hồi quyền GitHub Enterprise, vô hiệu hóa email lúc **17h30 ngày cuối cùng**.\n`;
+    res += `6. **Phê duyệt đa cấp:** Tuần tự qua 4 bước: Manager -> IT Support -> Kế toán (đối soát công nợ) -> Trưởng phòng HR.\n`;
+    return res;
   }
 
-  // 2. Specific Employee lookup
-  if (systemCtx.matchedEmployees.length > 0 && !lower.includes('thống kê')) {
-    const emp = systemCtx.matchedEmployees[0];
-    const unreturned = emp.assignments.filter((a) => !a.returnedAt);
-
-    let response = `### 👤 Dữ liệu nhân viên: **${emp.fullName}** (${emp.employeeCode})\n\n`;
-    response += `* **Chức danh:** ${emp.jobTitle || 'Chuyên viên'}\n`;
-    response += `* **Phòng ban:** ${emp.department?.name || 'N/A'}\n`;
-    response += `* **Email:** ${emp.email || 'N/A'} | **SĐT:** ${emp.phone || 'N/A'}\n\n`;
-
-    if (emp.requests.length > 0) {
-      response += `#### 📁 Hồ sơ thôi việc liên quan:\n`;
-      emp.requests.forEach((rq) => {
-        response += `- Mã hồ sơ: **${rq.requestCode}** | Trạng thái: \`${rq.status}\` | Rủi ro: \`${rq.riskLevel || 'N/A'}\`\n`;
-      });
-      response += `\n`;
-    }
-
-    response += `#### 💻 Danh mục tài sản công ty cấp phát:\n`;
-    if (unreturned.length > 0) {
-      unreturned.forEach((a) => {
-        response += `- **${a.asset.assetCode}**: ${a.asset.name} (Đang giữ, chưa bàn giao)\n`;
-      });
-    } else {
-      response += `Hiện không giữ tài sản công ty nào.\n`;
-    }
-
-    return response;
+  // Chính sách tài sản POL-02
+  if (lower.includes('chính sách') && lower.includes('tài sản')) {
+    let res = `### 💻 Chính sách Quản lý & Thu hồi Tài sản (POL-02)\n\n`;
+    res += `1. **Nghĩa vụ hoàn trả:** Nhân viên phải hoàn trả tất cả tài sản (Laptop, Màn hình, Thẻ từ) trước hoặc trong ngày làm việc cuối.\n`;
+    res += `2. **Kiểm định hiện trạng:** IT kiểm tra số serial, màn hình, bàn phím và thân vỏ thiết bị.\n`;
+    res += `3. **Biên bản thu hồi:** Bắt buộc có chữ ký xác nhận của đại diện IT và nhân viên bàn giao.\n`;
+    res += `4. **Trường hợp mất mát/hư hỏng:** Tạo phiếu ngoại lệ (\`ASSET_LOST\`) để khấu trừ giá trị vào quyết toán tài chính.\n`;
+    return res;
   }
 
-  // 3. Asset queries
-  if (
-    lower.includes('tài sản') ||
-    lower.includes('laptop') ||
-    lower.includes('máy tính') ||
-    lower.includes('màn hình') ||
-    lower.includes('thiết bị')
-  ) {
-    let response = `### 💻 Thông tin Tài sản & Thiết bị trên Hệ thống\n\n`;
-    if (systemCtx.matchedAssets.length > 0) {
-      response += `Hệ thống ghi nhận **${systemCtx.matchedAssets.length} tài sản**:\n\n`;
-      systemCtx.matchedAssets.forEach((a) => {
-        const holder = a.assignments.length > 0 ? `Đang cấp phát cho **${a.assignments[0].employee.fullName}**` : '🟢 Trong kho sẵn sàng cấp phát';
-        response += `- **${a.assetCode}**: ${a.name}\n  + Hiện trạng: \`${a.status}\` | ${holder}\n`;
-      });
-      response += `\n> **Quy chế thu hồi (POL-02):** Tất cả thiết bị phải được hoàn trả và kiểm định trước hoặc trong ngày làm việc cuối cùng. Trường hợp hư hỏng hoặc mất mát cần tạo phiếu Ngoại lệ (Process Exception).\n`;
-    } else {
-      response += `Hiện tại không tìm thấy thông tin tài sản phù hợp trong hệ thống.\n`;
-    }
-    return response;
-  }
-
-  // 4. Access accounts queries
-  if (
-    lower.includes('tài khoản') ||
-    lower.includes('quyền') ||
-    lower.includes('aws') ||
-    lower.includes('github') ||
-    lower.includes('truy cập')
-  ) {
-    let response = `### 🔐 Quyền truy cập Hệ thống & Bảo mật Cloud\n\n`;
-    if (systemCtx.matchedAccounts.length > 0) {
-      response += `Danh mục tài khoản hệ thống trọng yếu được quản lý:\n\n`;
-      systemCtx.matchedAccounts.forEach((acc) => {
-        const revStatus = acc.revocations.length > 0 ? acc.revocations[0].status : 'ACTIVE';
-        response += `- **${acc.systemName}** (${acc.accountName}) - Nhân viên: ${acc.employeeCode}\n  + Trạng thái thu hồi: \`${revStatus}\`\n`;
-      });
-      response += `\n> **Quy chuẩn bảo mật (SEC-03):** Toàn bộ tài khoản Cloud (AWS/GCP), GitHub Enterprise, SSH Keys và Email doanh nghiệp phải được vô hiệu hóa chính xác lúc **17h30 ngày làm việc cuối cùng** để triệt tiêu rủi ro rò rỉ mã nguồn.\n`;
-    } else {
-      response += `Không có tài khoản đặc thù nào cần rà soát.\n`;
-    }
-    return response;
-  }
-
-  // 5. System Statistics / Overview
-  if (
-    lower.includes('thống kê') ||
-    lower.includes('tổng quan') ||
-    lower.includes('bao nhiêu') ||
-    lower.includes('danh sách') ||
-    lower.includes('báo cáo')
-  ) {
-    const s = systemCtx.statistics;
-    let response = `### 📊 Tổng quan Dữ liệu Toàn Hệ thống EXITCONTROL\n\n`;
-    response += `* **Tổng số nhân sự:** **${s.totalEmployees}** nhân viên thuộc các phòng ban (BOD, HR, TECH, FINANCE, BIZ)\n`;
-    response += `* **Hồ sơ thôi việc:** **${s.totalRequests}** hồ sơ (**${s.pendingRequests}** hồ sơ đang trong quy trình xử lý)\n`;
-    response += `* **Quản trị tài sản:** **${s.totalAssets}** thiết bị vật lý (**${s.assignedAssets}** thiết bị đang được bàn giao/chưa thu hồi)\n`;
-    response += `* **Phê duyệt đang chờ:** **${s.pendingApprovals}** bước duyệt cần cấp quản lý xử lý\n\n`;
-
-    if (systemCtx.matchedRequests.length > 0) {
-      response += `#### 📋 Các hồ sơ thôi việc gần nhất:\n`;
-      systemCtx.matchedRequests.forEach((r) => {
-        response += `- **${r.requestCode}**: ${r.employee.fullName} (${r.employee.jobTitle || 'Nhân viên'}) - Trạng thái: \`${r.status}\` - Rủi ro: \`${r.riskLevel || 'LOW'}\`\n`;
-      });
-    }
-
-    return response;
-  }
-
-  // 6. Quy trình bàn giao / RAG Knowledge queries
-  if (
-    lower.includes('quy trình') ||
-    lower.includes('bàn giao') ||
-    lower.includes('chính sách') ||
-    lower.includes('quy chế') ||
-    lower.includes('offboarding')
-  ) {
-    let response = `### 📖 Quy chế Bàn giao công việc & Quy trình Thôi việc Chuẩn\n\n`;
-    response += `Căn cứ theo tài liệu quy chuẩn **SOP-01 (Nexora ExitControl)**, quy trình thôi việc bao gồm **6 giai đoạn** chính:\n\n`;
-    response += `1. **Tiếp nhận & Đăng ký hồ sơ:** Nhân viên nộp đơn hoặc Quản lý trực tiếp tạo hồ sơ thôi việc trên hệ thống.\n`;
-    response += `2. **Tự động sinh nhiệm vụ:** Hệ thống phân bổ danh mục đầu việc theo phòng ban (kỹ thuật, hành chính, tài chính).\n`;
-    response += `3. **Bàn giao chuyên môn & Mã nguồn:** Bàn giao tài liệu kiến trúc, quyền admin repo GitHub, Confluence cho người kế nhiệm trước tối thiểu 03 ngày.\n`;
-    response += `4. **Kiểm định & Thu hồi tài sản:** IT kiểm tra số Serial, hiện trạng laptop, màn hình, thẻ từ và lập biên bản có chữ ký.\n`;
-    response += `5. **Vô hiệu hóa quyền truy cập:** Khóa tài khoản Cloud AWS, thu hồi quyền GitHub Enterprise, vô hiệu hóa email lúc **17h30 ngày cuối cùng**.\n`;
-    response += `6. **Phê duyệt đa cấp:** Tuần tự qua 4 bước: Manager -> IT Support -> Kế toán (đối soát công nợ) -> Trưởng phòng HR.\n\n`;
-
-    if (systemCtx.matchedRequests.length > 0) {
-      const r = systemCtx.matchedRequests[0];
-      response += `> *Ghi nhận thực tế:* Hồ sơ **${r.requestCode}** của ${r.employee.fullName} hiện đang ở bước bàn giao kỹ thuật và thu hồi tài sản.\n`;
-    }
-
-    return response;
-  }
-
-  // Default fallback answer incorporating real system context
-  let response = `Tôi là Trợ lý AI EXITCONTROL (RAG Knowledge Engine). Tôi có toàn quyền truy xuất dữ liệu thời gian thực trên hệ thống.\n\n`;
-  response += `**Hệ thống hiện đang quản lý:**\n`;
-  response += `- **${systemCtx.statistics.totalRequests}** hồ sơ thôi việc (Ví dụ: \`OFF-2026-001\` của nhân viên ${systemCtx.matchedRequests[0]?.employee.fullName || 'Nguyễn Văn Bách'})\n`;
-  response += `- **${systemCtx.statistics.totalEmployees}** nhân viên và **${systemCtx.statistics.totalAssets}** tài sản thiết bị\n`;
-  response += `- Bộ quy chế nội bộ: Quy trình bàn giao (SOP-01), Quy chế thu hồi tài sản (POL-02), Bảo mật tài khoản (SEC-03), Quyết toán tài chính (FIN-04)\n\n`;
-  response += `Bạn có thể hỏi tôi chi tiết về bất kỳ hồ sơ nào (VD: *"Phân tích hồ sơ OFF-2026-001"*), kiểm tra tài sản của một nhân viên (VD: *"Tài sản của Nguyễn Văn Bách"*), hoặc tra cứu quy chuẩn bàn giao.`;
-
-  return response;
+  // Fallback comprehensive help
+  let res = `Tôi là Trợ lý AI EXITCONTROL (Hệ thống RAG & Lọc Dữ liệu Thời gian thực).\n\n`;
+  res += `Bạn có thể yêu cầu tôi **lọc hoặc tìm kiếm bất kỳ thông tin nào** trên hệ thống web:\n\n`;
+  res += `* 👥 **Lọc nhân sự:** *"Lọc danh sách nhân viên phòng Kỹ thuật (TECH)"*, *"Những ai đang làm ở phòng Nhân sự?"*\n`;
+  res += `* 📋 **Lọc hồ sơ:** *"Lọc các hồ sơ thôi việc đang xử lý"*, *"Hồ sơ nào có mức rủi ro cao?"*\n`;
+  res += `* 💻 **Lọc tài sản:** *"Lọc các tài sản chưa thu hồi"*, *"Ai đang giữ máy tính MacBook Pro?"*\n`;
+  res += `* 🔐 **Lọc tài khoản:** *"Lọc danh sách tài khoản AWS và GitHub cần khóa"*\n`;
+  res += `* 💰 **Lọc tài chính:** *"Lọc đối soát công nợ và tạm ứng của nhân viên"*\n`;
+  res += `* ⚠️ **Lọc ngoại lệ:** *"Lọc các sự cố ngoại lệ chưa được giải quyết"*\n`;
+  res += `* 📊 **Thống kê:** *"Thống kê tổng quan dữ liệu toàn hệ thống"*\n`;
+  return res;
 }
 
-// Call external Gemini API if a real API key is configured
+// Call external Gemini API if available
 async function callGeminiAPI(systemContextText, userMessage) {
   const apiKey = ENV.AI_API_KEY;
   if (!apiKey || apiKey === 'mock_ai_api_key' || apiKey.startsWith('your_')) {
@@ -669,18 +753,17 @@ async function callGeminiAPI(systemContextText, userMessage) {
   const model = ENV.AI_MODEL || 'gemini-1.5-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  const prompt = `Bạn là Trợ lý AI chuyên trách quản trị hệ thống và kiểm soát thôi việc doanh nghiệp EXITCONTROL (Nexora Technology Systems).
+  const prompt = `Bạn là Trợ lý AI chuyên trách quản trị hệ thống và kiểm soát thôi việc doanh nghiệp EXITCONTROL.
 Dưới đây là DỮ LIỆU THỰC TẾ TRÍCH XUẤT TỪ CƠ SỞ DỮ LIỆU HỆ THỐNG VÀ KHO TRI THỨC NỘI BỘ (RAG):
 
 ${systemContextText}
 
 YÊU CẦU:
-1. Trả lời câu hỏi của người dùng dựa TRỰC TIẾP và CHÍNH XÁC trên dữ liệu hệ thống được cung cấp ở trên.
-2. Trích dẫn rõ mã hồ sơ, tên nhân viên, mã tài sản, hệ thống tài khoản và điều khoản quy chế khi trả lời.
-3. Sử dụng định dạng Markdown rõ ràng, chuyên nghiệp (tiêu đề, danh sách, in đậm).
-4. Giữ phong thái khách quan, bảo mật và hỗ trợ tốt nhất cho quy trình vận hành.
+1. Trả lời câu hỏi hoặc yêu cầu lọc dữ liệu của người dùng dựa TRỰC TIẾP và CHÍNH XÁC trên dữ liệu hệ thống ở trên.
+2. Trình bày kết quả lọc dưới dạng bảng Markdown hoặc danh sách có cấu trúc rõ ràng.
+3. Trích dẫn rõ mã hồ sơ, tên nhân viên, mã tài sản và phòng ban liên quan.
 
-Câu hỏi của người dùng: "${userMessage}"`;
+Câu hỏi/Yêu cầu lọc của người dùng: "${userMessage}"`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -696,45 +779,58 @@ Câu hỏi của người dùng: "${userMessage}"`;
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      console.warn('Gemini API call returned non-200:', response.status);
-      return null;
-    }
-
+    if (!response.ok) return null;
     const data = await response.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return candidateText || null;
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (err) {
-    console.warn('Gemini API call failed or timed out:', err.message);
     return null;
   }
 }
 
-// Main Chat with AI & RAG Engine
+// Main Chat & Filter Engine Entrypoint
 export const chatWithAI = async (message, context = {}, currentUser = null) => {
   if (!message || typeof message !== 'string') {
     return {
-      reply: 'Vui lòng nhập nội dung câu hỏi.',
+      reply: 'Vui lòng nhập nội dung câu hỏi hoặc yêu cầu lọc dữ liệu.',
       disclaimer: 'Khuyến cáo: Câu trả lời của AI chỉ mang tính chất tham khảo.',
       sources: [],
     };
   }
 
-  // 1. Gather real-time system context
-  const systemContext = await gatherSystemContext(message);
-  const contextString = buildContextString(systemContext);
+  try {
+    // 1. Check for specific Data Filter Query
+    const filterResult = await executeFilterQuery(message);
+    if (filterResult) {
+      return {
+        reply: filterResult.reply,
+        sources: filterResult.sources || [],
+        disclaimer: 'Dữ liệu được truy xuất trực tiếp từ cơ sở dữ liệu hệ thống thời gian thực.',
+      };
+    }
 
-  // 2. Attempt LLM generation if valid API Key exists
-  let reply = await callGeminiAPI(contextString, message);
+    // 2. Gather general context
+    const systemContext = await gatherSystemContext(message);
+    const contextString = buildContextString(systemContext);
 
-  // 3. Fallback to built-in intelligent context synthesizer
-  if (!reply) {
-    reply = synthesizeResponse(message, systemContext);
+    // 3. Attempt Gemini API if configured
+    let reply = await callGeminiAPI(contextString, message);
+
+    // 4. Fallback to general synthesizer
+    if (!reply) {
+      reply = synthesizeGeneralResponse(message, systemContext);
+    }
+
+    return {
+      reply,
+      sources: systemContext.sources || [],
+      disclaimer: 'Dữ liệu được trích xuất trực tiếp từ hệ thống EXITCONTROL và kho tri thức quy chế nội bộ.',
+    };
+  } catch (error) {
+    console.error('Lỗi xử lý chatWithAI:', error);
+    return {
+      reply: `Đã xảy ra lỗi khi truy xuất dữ liệu hệ thống: ${error.message}. Vui lòng thử lại.`,
+      sources: [],
+      disclaimer: 'Thông báo lỗi hệ thống.',
+    };
   }
-
-  return {
-    reply,
-    sources: systemContext.sources || [],
-    disclaimer: 'Khuyến cáo: Dữ liệu được trích xuất trực tiếp từ hệ thống EXITCONTROL và kho tri thức quy chế nội bộ. Mọi quyết định phê duyệt chính thức thuộc thẩm quyền của cấp quản lý được chỉ định.',
-  };
 };
