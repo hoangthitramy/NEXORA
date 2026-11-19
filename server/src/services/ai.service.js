@@ -196,16 +196,40 @@ async function executeFilterQuery(query) {
   const lower = query.toLowerCase().trim();
   const sources = [];
 
+  // Helper: check offboarding-specific keywords to avoid false-matching employee filter
+  const hasOffboardingKeyword =
+    lower.includes('nghỉ việc') ||
+    lower.includes('thôi việc') ||
+    lower.includes('hồ sơ') ||
+    lower.includes('offboarding') ||
+    lower.includes('đang xử lý') ||
+    lower.includes('chờ duyệt') ||
+    lower.includes('rủi ro') ||
+    lower.includes('resignation') ||
+    lower.includes('đơn');
+
   // 1. FILTER EMPLOYEES (Lọc Nhân sự theo phòng ban, vai trò, tài sản đang giữ)
   const isEmployeeFilter =
     lower.includes('nhân viên') ||
     lower.includes('nhân sự') ||
     lower.includes('danh sách nhân viên') ||
+    lower.includes('danh sách người') ||
     lower.includes('ai làm ở') ||
+    lower.includes('người làm') ||
+    lower.includes('những ai') ||
+    lower.includes('liệt kê nhân') ||
+    lower.includes('xem danh sách') ||
     lower.includes('lọc theo phòng ban') ||
+    lower.includes('người trong phòng') ||
+    lower.includes('staff') ||
+    lower.includes('employee') ||
+    lower.includes('toàn bộ nhân') ||
+    lower.includes('tất cả nhân') ||
+    lower.includes('có mấy nhân') ||
+    lower.includes('có bao nhiêu nhân') ||
     (lower.includes('lọc') && (lower.includes('tech') || lower.includes('kỹ thuật') || lower.includes('hr') || lower.includes('nhân sự') || lower.includes('kế toán') || lower.includes('kinh doanh')));
 
-  if (isEmployeeFilter && !lower.includes('hồ sơ') && !lower.includes('quy trình')) {
+  if (isEmployeeFilter && !hasOffboardingKeyword && !lower.includes('quy trình')) {
     let deptCode = null;
     let deptName = 'Tất cả phòng ban';
 
@@ -272,7 +296,19 @@ async function executeFilterQuery(query) {
     lower.includes('offboarding') ||
     lower.includes('đang xử lý') ||
     lower.includes('chờ duyệt') ||
-    lower.includes('rủi ro cao');
+    lower.includes('rủi ro cao') ||
+    lower.includes('ai đang nghỉ') ||
+    lower.includes('ai đang thôi') ||
+    lower.includes('người nghỉ') ||
+    lower.includes('người thôi việc') ||
+    lower.includes('danh sách thôi việc') ||
+    lower.includes('request') ||
+    lower.includes('case') ||
+    lower.includes('tình trạng hồ sơ') ||
+    lower.includes('tiến độ') ||
+    lower.includes('bao nhiêu hồ sơ') ||
+    lower.includes('có hồ sơ') ||
+    lower.includes('xem hồ sơ');
 
   if (isRequestFilter && !lower.includes('quy trình bàn giao') && !lower.includes('sop')) {
     const whereClause = {};
@@ -366,7 +402,20 @@ async function executeFilterQuery(query) {
     lower.includes('màn hình') ||
     lower.includes('thẻ từ') ||
     lower.includes('chưa thu hồi') ||
-    lower.includes('thu hồi tài sản');
+    lower.includes('thu hồi tài sản') ||
+    lower.includes('tình trạng thiết bị') ||
+    lower.includes('kiểm kê') ||
+    lower.includes('danh sách thiết bị') ||
+    lower.includes('danh sách tài sản') ||
+    lower.includes('ai đang giữ') ||
+    lower.includes('ai giữ') ||
+    lower.includes('thiết bị nào') ||
+    lower.includes('tài sản nào') ||
+    lower.includes('equipment') ||
+    lower.includes('asset') ||
+    lower.includes('macbook') ||
+    lower.includes('dell') ||
+    lower.includes('thinkpad');
 
   if (isAssetFilter && !lower.includes('chính sách thu hồi tài sản')) {
     const whereClause = {};
@@ -420,7 +469,18 @@ async function executeFilterQuery(query) {
     lower.includes('aws') ||
     lower.includes('github') ||
     lower.includes('google workspace') ||
-    lower.includes('khóa quyền');
+    lower.includes('khóa quyền') ||
+    lower.includes('thu hồi quyền') ||
+    lower.includes('account') ||
+    lower.includes('quyền truy cập') ||
+    lower.includes('cần khóa') ||
+    lower.includes('chưa khóa') ||
+    lower.includes('vô hiệu hóa') ||
+    lower.includes('danh sách tài khoản') ||
+    lower.includes('cloud account') ||
+    lower.includes('gcp') ||
+    lower.includes('slack') ||
+    lower.includes('jira');
 
   if (isAccountFilter && !lower.includes('thời điểm thu hồi')) {
     const whereClause = {};
@@ -463,7 +523,16 @@ async function executeFilterQuery(query) {
   }
 
   // 5. FILTER RESIGNATIONS (Lọc đơn xin thôi việc)
-  if (lower.includes('đơn xin nghỉ') || lower.includes('đơn từ chức') || lower.includes('resignation')) {
+  if (
+    lower.includes('đơn xin nghỉ') ||
+    lower.includes('đơn từ chức') ||
+    lower.includes('resignation') ||
+    lower.includes('đơn thôi việc') ||
+    lower.includes('đơn nghỉ') ||
+    lower.includes('nộp đơn') ||
+    lower.includes('resignation request') ||
+    lower.includes('danh sách đơn')
+  ) {
     const resignations = await prisma.resignationRequest.findMany({
       include: { employee: { include: { department: true } } },
       orderBy: { createdAt: 'desc' },
@@ -487,7 +556,21 @@ async function executeFilterQuery(query) {
   }
 
   // 6. FILTER FINANCIAL RECONCILIATIONS (Lọc công nợ, đối soát tài chính)
-  if (lower.includes('công nợ') || lower.includes('tài chính') || lower.includes('tạm ứng') || lower.includes('quyết toán')) {
+  if (
+    lower.includes('công nợ') ||
+    lower.includes('tài chính') ||
+    lower.includes('tạm ứng') ||
+    lower.includes('quyết toán') ||
+    lower.includes('nợ') ||
+    lower.includes('finance') ||
+    lower.includes('kế toán') ||
+    lower.includes('chi phí') ||
+    lower.includes('thanh toán') ||
+    lower.includes('lương cuối') ||
+    lower.includes('đối soát') ||
+    lower.includes('hoàn ứng') ||
+    lower.includes('financial')
+  ) {
     const finances = await prisma.financialReconciliation.findMany({
       include: { request: { include: { employee: true } } },
     });
@@ -510,7 +593,19 @@ async function executeFilterQuery(query) {
   }
 
   // 7. FILTER EXCEPTIONS (Lọc sự cố & ngoại lệ quy trình)
-  if (lower.includes('ngoại lệ') || lower.includes('sự cố') || lower.includes('exception') || lower.includes('mất tài sản')) {
+  if (
+    lower.includes('ngoại lệ') ||
+    lower.includes('sự cố') ||
+    lower.includes('exception') ||
+    lower.includes('mất tài sản') ||
+    lower.includes('vấn đề') ||
+    lower.includes('lỗi quy trình') ||
+    lower.includes('incident') ||
+    lower.includes('blocker') ||
+    lower.includes('blocked') ||
+    lower.includes('điểm nghẽn') ||
+    lower.includes('chặn')
+  ) {
     const exceptions = await prisma.processException.findMany({
       include: { request: { include: { employee: true } } },
       orderBy: { createdAt: 'desc' },
@@ -690,7 +785,20 @@ function synthesizeGeneralResponse(query, systemCtx) {
   const lower = query.toLowerCase();
 
   // Overview / Stats
-  if (lower.includes('thống kê') || lower.includes('tổng quan') || lower.includes('bao nhiêu')) {
+  if (
+    lower.includes('thống kê') ||
+    lower.includes('tổng quan') ||
+    lower.includes('bao nhiêu') ||
+    lower.includes('hệ thống có') ||
+    lower.includes('giới thiệu') ||
+    lower.includes('tóm tắt') ||
+    lower.includes('overview') ||
+    lower.includes('summary') ||
+    lower.includes('dashboard') ||
+    lower.includes('hiện có') ||
+    lower.includes('hiện tại có') ||
+    lower.includes('có gì trong')
+  ) {
     const s = systemCtx.statistics;
     let res = `### 📊 Tổng quan Dữ liệu Toàn Hệ thống EXITCONTROL\n\n`;
     res += `* **Tổng số nhân sự:** **${s.totalEmployees}** nhân sự thuộc các phòng ban (TECH, HR, FINANCE, BIZ, BOD)\n`;
@@ -704,11 +812,20 @@ function synthesizeGeneralResponse(query, systemCtx) {
         res += `- **${r.requestCode}**: ${r.employee.fullName} (${r.employee.jobTitle || 'Nhân viên'}) - Trạng thái: \`${r.status}\` - Rủi ro: \`${r.riskLevel || 'LOW'}\`\n`;
       });
     }
+
+    res += `\n> **Gợi ý:** Bạn có thể hỏi cụ thể hơn, ví dụ: *"Lọc nhân viên phòng Kỹ thuật"*, *"Hồ sơ nào đang xử lý?"*, *"Tài sản nào chưa thu hồi?"*`;
     return res;
   }
 
   // Quy trình bàn giao SOP-01
-  if (lower.includes('quy trình') || lower.includes('bàn giao') || lower.includes('sop')) {
+  if (
+    lower.includes('quy trình') ||
+    lower.includes('bàn giao') ||
+    lower.includes('sop') ||
+    lower.includes('các bước') ||
+    lower.includes('giai đoạn') ||
+    lower.includes('quy trình thôi việc')
+  ) {
     let res = `### 📖 Quy chế Bàn giao công việc & Quy trình Thôi việc Chuẩn\n\n`;
     res += `Căn cứ theo tài liệu quy chuẩn **SOP-01 (Nexora ExitControl)**, quy trình thôi việc bao gồm **6 giai đoạn** chính:\n\n`;
     res += `1. **Tiếp nhận & Đăng ký hồ sơ:** Nhân viên nộp đơn hoặc Quản lý trực tiếp tạo hồ sơ thôi việc trên hệ thống.\n`;
@@ -731,15 +848,18 @@ function synthesizeGeneralResponse(query, systemCtx) {
   }
 
   // Fallback comprehensive help
-  let res = `Tôi là Trợ lý AI EXITCONTROL (Hệ thống RAG & Lọc Dữ liệu Thời gian thực).\n\n`;
-  res += `Bạn có thể yêu cầu tôi **lọc hoặc tìm kiếm bất kỳ thông tin nào** trên hệ thống web:\n\n`;
-  res += `* 👥 **Lọc nhân sự:** *"Lọc danh sách nhân viên phòng Kỹ thuật (TECH)"*, *"Những ai đang làm ở phòng Nhân sự?"*\n`;
-  res += `* 📋 **Lọc hồ sơ:** *"Lọc các hồ sơ thôi việc đang xử lý"*, *"Hồ sơ nào có mức rủi ro cao?"*\n`;
-  res += `* 💻 **Lọc tài sản:** *"Lọc các tài sản chưa thu hồi"*, *"Ai đang giữ máy tính MacBook Pro?"*\n`;
-  res += `* 🔐 **Lọc tài khoản:** *"Lọc danh sách tài khoản AWS và GitHub cần khóa"*\n`;
-  res += `* 💰 **Lọc tài chính:** *"Lọc đối soát công nợ và tạm ứng của nhân viên"*\n`;
-  res += `* ⚠️ **Lọc ngoại lệ:** *"Lọc các sự cố ngoại lệ chưa được giải quyết"*\n`;
-  res += `* 📊 **Thống kê:** *"Thống kê tổng quan dữ liệu toàn hệ thống"*\n`;
+  let res = `### 🤖 Trợ lý AI EXITCONTROL — Hướng dẫn sử dụng\n\n`;
+  res += `Tôi có thể **truy xuất và lọc bất kỳ thông tin nào** trên hệ thống theo thời gian thực. Hãy thử hỏi tôi:\n\n`;
+  res += `* 👥 **Nhân sự:** *"Danh sách nhân viên phòng Kỹ thuật"*, *"Có bao nhiêu nhân viên trong hệ thống?"*\n`;
+  res += `* 📋 **Hồ sơ thôi việc:** *"Lọc hồ sơ đang xử lý"*, *"Ai đang nghỉ việc?"*, *"Hồ sơ rủi ro cao"*\n`;
+  res += `* 💻 **Tài sản thiết bị:** *"Tài sản nào chưa thu hồi?"*, *"Ai đang giữ laptop?"*, *"Kiểm kê thiết bị"*\n`;
+  res += `* 🔐 **Tài khoản & Quyền truy cập:** *"Tài khoản AWS nào cần khóa?"*, *"Quyền truy cập nào chưa thu hồi?"*\n`;
+  res += `* 💰 **Tài chính & Công nợ:** *"Đối soát công nợ"*, *"Tạm ứng chưa hoàn ứng"*, *"Quyết toán lương"*\n`;
+  res += `* 📄 **Đơn xin nghỉ việc:** *"Danh sách đơn từ chức"*, *"Đơn nào đang chờ duyệt?"*\n`;
+  res += `* ⚠️ **Sự cố & Ngoại lệ:** *"Sự cố ngoại lệ nào chưa xử lý?"*, *"Điểm nghẽn trong quy trình"*\n`;
+  res += `* 📊 **Thống kê tổng quan:** *"Thống kê hệ thống"*, *"Tổng quan dữ liệu hiện tại"*\n`;
+  res += `* 📖 **Quy chế nội bộ:** *"Quy trình bàn giao SOP-01"*, *"Chính sách thu hồi tài sản"*\n\n`;
+  res += `> Hoặc sử dụng các **Nút lọc nhanh** phía trên để lọc dữ liệu chỉ với 1 click!`;
   return res;
 }
 
