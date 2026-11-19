@@ -28,10 +28,15 @@ import FinanceList from '../pages/finance/FinanceList';
 import ExceptionList from '../pages/exceptions/ExceptionList';
 import AuditLogList from '../pages/audit/AuditLogList';
 import Profile from '../pages/profile/Profile';
+import LandingPage from '../pages/landing/LandingPage';
 
 export default function AppRoutes() {
   return (
     <Routes>
+      {/* Public Landing & Introduction */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/home" element={<LandingPage />} />
+
       {/* Public Auth Routes */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
@@ -47,7 +52,6 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/resignation" element={<ResignationList />} />
         <Route path="/offboarding" element={<OffboardingList />} />

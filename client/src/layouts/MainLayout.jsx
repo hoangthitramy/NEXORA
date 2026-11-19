@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
 import {
@@ -75,7 +75,11 @@ export default function MainLayout() {
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 border-r border-slate-800">
-        <div className="h-16 flex items-center px-6 border-b border-slate-800 gap-3">
+        <Link
+          to="/"
+          className="h-16 flex items-center px-6 border-b border-slate-800 gap-3 hover:bg-slate-800/40 transition-colors"
+          title="Về trang chủ giới thiệu"
+        >
           <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-indigo-500/20">
             EC
           </div>
@@ -88,7 +92,7 @@ export default function MainLayout() {
             </div>
             <div className="text-[11px] text-slate-400">Offboarding & Handover</div>
           </div>
-        </div>
+        </Link>
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
@@ -165,6 +169,15 @@ export default function MainLayout() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Link to Landing Introduction */}
+            <Link
+              to="/"
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md transition"
+              title="Xem trang giới thiệu hệ thống"
+            >
+              Trang giới thiệu
+            </Link>
+
             {/* Link to Swagger Docs */}
             <a
               href="http://localhost:5050/api-docs"
