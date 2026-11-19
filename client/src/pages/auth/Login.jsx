@@ -94,10 +94,15 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
-          Chưa có tài khoản?{' '}
-          <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-700 underline">
-            Đăng ký tài khoản ngay
+        <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col items-center gap-2 text-xs text-slate-500">
+          <div>
+            Chưa có tài khoản?{' '}
+            <Link to="/register" className="font-semibold text-indigo-600 hover:text-indigo-700 underline">
+              Đăng ký tài khoản ngay
+            </Link>
+          </div>
+          <Link to="/" className="text-slate-400 hover:text-slate-600 flex items-center gap-1 transition mt-1">
+            ← Quay về trang chủ giới thiệu
           </Link>
         </div>
       </div>
