@@ -68,21 +68,34 @@ He thong ap dung nghiem ngat nguyen tac phan tach trach nhiem (Segregation of Du
 
 ## 4. Cac phan he chuc nang chi tiet
 
-### 4.1. Phan he Xac thuc va Ho so ca nhan
+### 4.1. Trang chu Gioi thieu he thong (/ va /home)
+- Dinh huong cong khai: Khach vang lai, Ban Giam khao va doanh nghiep chua dang ky tai khoan van co the truy cap xem toan bo thong tin gioi thieu ve he thong ma khong bi chan.
+- Noi dung gioi thieu bao gom:
+  + Thong diep giai phap va 4 chi so do luong tin cay (100% thu hoi quyen so, 0% that thoat thiet bi, tiet kiem 75% thoi gian, chuan hoa Audit ISO/SOC2).
+  + Khung mo phong truc quan tien do ho so thoi viec thoi gian thuc.
+  + So do 5 buoc van hanh quy trinh nghi viec chuan hoa tu khoi tao don toi dong ho so.
+  + 6 gia tri cot loi phuc vu doanh nghiep: Bao mat so lieu, Quan ly tai san phan cung, Quyet toan cong no, Quan ly ngoai le, Tro ly AI va Nhat ky Audit.
+  + Gioi thieu tom tat 7 nhom vai tro nghiep vu va nguyen tac phan tach trach nhiem.
+  + Thong tin ve nen tang do Tap doan Cong nghe Nexora phat trien (Quy mo phuc vu tu 50 toi hon 10.000 nhan su).
+  + Thong tin lien he chinh thuc (Tru so Ha Noi/TP.HCM, hotline 24/7, email) kem Form dang ky tu van demo truc tuyen co phan hoi tuc thi.
+  + Nut dieu huong thong minh: "Dang nhap" (/login), "Dang ky" (/register) hoac "Vao Bang dieu khien" (/dashboard) neu da dang nhap.
+  + Nut "Quay ve trang chu gioi thieu" duoc tich hop ngay tren man hinh Dang nhap va Dang ky.
+
+### 4.2. Phan he Xac thuc va Ho so ca nhan
 - Dang nhap he thong: Kiem tra email va mat khau ma hoa, cap phat Access Token (8 gio) va Refresh Token (7 ngay).
 - Dang ky tai khoan: Nhan vien tu dang ky dinh danh, lien ket phong ban truc thuoc va chuc danh cong viec.
 - Khoi phuc mat khau: Quy trinh 2 buoc su dung ma xac thuc dung mot lan (Token 15 phut) gui toi email nguoi dung.
 - Ho so ca nhan (/profile): Xem ma nhan vien, don vi truc thuoc, vai tro he thong; cap nhat so dien thoai, vi tri cong tac va doi mat khau an toan.
 - Quan ly tai khoan (/users): Danh rieng cho Admin/HR de tao tai khoan, phan quyen va bat/tat trang thai hoat dong.
 
-### 4.2. Phan he Don xin nghi viec (/resignation)
+### 4.3. Phan he Don xin nghi viec (/resignation)
 - Nhan vien tao don truc tuyen gom: ly do nghi viec, ngay gui don, ngay lam viec cuoi cung, tai lieu dinh kem.
 - Ma don duoc he thong sinh tu dong theo dinh dang RES-YYYY-XXXX.
 - Cap quan ly (Manager) va Nhan su (HR) xem xet tham dinh:
   - Khi Phe duyet (Approve): Tu dong tao Ho so Thoi viec (Offboarding Request), khoi tao danh muc cong viec ban giao theo Task Template va sinh ban ghi doi soat tai chinh cho Ke toan.
   - Khi Tu choi (Reject): Ghi nhan ly do tu choi va phan hoi truc tiep cho nhan vien.
 
-### 4.3. Phan he Ho so Thoi viec tap trung (/offboarding)
+### 4.4. Phan he Ho so Thoi viec tap trung (/offboarding)
 Giao dien tich hop 12 tab chuyen sau cho tung ho so:
 1. Tong quan & Tien do: Thong tin moc thoi gian, chi so % hoan tat quy trinh tong hop.
 2. Thong tin nhan vien: Chuc danh, phong ban, email, ma nhan vien.
@@ -97,7 +110,7 @@ Giao dien tich hop 12 tab chuyen sau cho tung ho so:
 11. Trao doi noi bo: Keng trao doi thong tin truc tiep giua cac phong ban ve tung ho so.
 12. Nhat ky hoat dong: Nhat ky ghi vet toan bo thao tac lien quan toi ho so.
 
-### 4.4. Phan he Doi soat va Quyet toan tai chinh (/finance)
+### 4.5. Phan he Doi soat va Quyet toan tai chinh (/finance)
 - Danh rieng cho phong Ke toan va Ban Giam doc.
 - Quan ly 4 tham so tai chinh:
   - Tien tam ung cong tac phi chua hoan ung.
@@ -107,7 +120,7 @@ Giao dien tich hop 12 tab chuyen sau cho tung ho so:
 - Trang thai doi soat: PENDING (Cho doi soat), CLEARED (Da quyet toan xong), DISPUTED (Tranh chap).
 - Luu vet nguoi thuc hien (clearedBy) va thoi gian thuc hien (clearedAt).
 
-### 4.5. Phan he Quan ly Su co va Ngoai le (/exceptions)
+### 4.6. Phan he Quan ly Su co va Ngoai le (/exceptions)
 - Tiep nhan va giai quyet cac tinh huong phat sinh ngoai quy trinh chuan:
   - ASSET_LOST: Mat mat, hu hong may tinh xach tay, thiet bi cong ty.
   - ACCOUNT_BLOCKED: Loi ky thuat trong viec xoa/thu hoi tai khoan dich vu dam may.
@@ -116,12 +129,12 @@ Giao dien tich hop 12 tab chuyen sau cho tung ho so:
 - Phan loai muc do uu tien: CRITICAL, HIGH, MEDIUM, LOW.
 - Ghi nhan bien ban giai quyet hoac quyet dinh mien tru trach nhiem (RESOLVED / EXEMPTED).
 
-### 4.6. Phan he Nhat ky Kiem toan he thong (/audit-logs)
+### 4.7. Phan he Nhat ky Kiem toan he thong (/audit-logs)
 - Ghi nhan tu dong toan bo hanh dong quan trong tren he thong (Non-repudiation).
 - Xem chi tiet bien dong du lieu (Audit Diff): So sanh gia tri truoc khi sua (oldValue) va gia tri sau khi sua (newValue) duoi dinh dang JSON.
 - Ghi nhan dinh danh nguoi thao tac, dia chi IP, thoi gian chinh xac va ma ho so lien quan.
 
-### 4.7. Phan he Bao cao va Thong ke (/reports)
+### 4.8. Phan he Bao cao va Thong ke (/reports)
 - Tong hop so lieu toan doanh nghiep: Ty le nghi viec theo phong ban, thoi gian hoan tat ban giao trung binh, ty le dat hanh muc SLA.
 - Ho tro xuat du lieu va in an bao cao tong ket.
 
@@ -200,6 +213,12 @@ npm install
 npm run dev
 ```
 Frontend Web App se khoi chay tai dia chi: `http://localhost:5173`
+
+Cac duong dan truy cap chinh:
+- `http://localhost:5173/`: Trang chu Gioi thieu he thong (Cong khai cho khach va Ban Giam khao chua can dang nhap).
+- `http://localhost:5173/login`: Trang Dang nhap tai khoan xac thuc.
+- `http://localhost:5173/register`: Trang Dang ky thanh vien moi.
+- `http://localhost:5173/dashboard`: Bang dieu khien quan tri he thong (Yeu cau dang nhap).
 
 ---
 
