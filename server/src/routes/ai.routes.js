@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(authenticate);
 
+router.get('/knowledge', aiController.getKnowledgeList);
 router.post('/analyze/:requestId', aiController.analyze);
 router.post('/chat', aiController.chat);
 

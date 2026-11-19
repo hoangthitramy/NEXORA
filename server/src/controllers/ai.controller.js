@@ -14,8 +14,17 @@ export const analyze = async (req, res, next) => {
 export const chat = async (req, res, next) => {
   try {
     const { message, context } = req.body;
-    const data = await aiService.chatWithAI(message, context);
+    const data = await aiService.chatWithAI(message, context, req.user);
     return sendSuccess(res, data, 'Phản hồi từ AI');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getKnowledgeList = async (req, res, next) => {
+  try {
+    const data = await aiService.getKnowledgeBaseList();
+    return sendSuccess(res, data, 'Danh sách tri thức RAG');
   } catch (error) {
     next(error);
   }
