@@ -1,0 +1,518 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  IN_PROGRESS
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  PENDING_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum HandoverStatus {
+  DRAFT
+  IN_PROGRESS
+  PENDING_CONFIRMATION
+  CONFIRMED
+  REJECTED
+}
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  LOST
+  RETIRED
+}
+
+enum RevocationStatus {
+  PENDING
+  IN_PROGRESS
+  REVOKED
+  FAILED
+  EXEMPTED
+}
+
+enum DocumentType {
+  HANDOVER
+  RESIGNATION
+  ASSET
+  ACCESS
+  OTHER
+}
+
+enum AnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Organization {
+  id          String       @id @default(uuid()) @db.Char(36)
+  name        String
+  code        String       @unique
+  departments Department[]
+  users       User[]
+  employees   Employee[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("organizations")
+}
+
+model Department {
+  id             String       @id @default(uuid()) @db.Char(36)
+  name           String
+  code           String
+  organizationId String       @db.Char(36)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  employees      Employee[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, code])
+  @@map("departments")
+}
+
+model User {
+  id              String               @id @default(uuid()) @db.Char(36)
+  fullName        String
+  email           String               @unique
+  passwordHash    String
+  isActive        Boolean              @default(true)
+  organizationId  String               @db.Char(36)
+  organization    Organization         @relation(fields: [organizationId], references: [id])
+  employee        Employee?
+  userRoles       UserRole[]
+  createdRequests OffboardingRequest[] @relation("RequestCreator")
+  assignedTasks   OffboardingTask[]    @relation("TaskAssignee")
+  approvals       Approval[]
+  comments        Comment[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  conversations   AIConversation[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(uuid()) @db.Char(36)
+  name        String     @unique
+  description String?
+  userRoles   UserRole[]
+  createdAt   DateTime   @default(now())
+
+  @@map("roles")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Char(36)
+  userId    String   @db.Char(36)
+  roleId    String   @db.Char(36)
+  user      User     @relation(fields: [userId], references: [id])
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model Employee {
+  id             String             @id @default(uuid()) @db.Char(36)
+  employeeCode   String             @unique
+  fullName       String
+  email          String
+  phone          String?
+  jobTitle       String?
+  organizationId String             @db.Char(36)
+  departmentId   String             @db.Char(36)
+  userId         String?            @unique @db.Char(36)
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  department     Department         @relation(fields: [departmentId], references: [id])
+  user           User?              @relation(fields: [userId], references: [id])
+  requests       OffboardingRequest[]
+  assignments    AssetAssignment[]
+  resignationRequests ResignationRequest[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@map("employees")
+}
+
+model OffboardingRequest {
+  id              String             @id @default(uuid()) @db.Char(36)
+  requestCode     String             @unique
+  employeeId      String             @db.Char(36)
+  creatorId       String             @db.Char(36)
+  templateId      String?            @db.Char(36)
+  reason          String?
+  resignationDate DateTime
+  lastWorkingDate DateTime
+  status          RequestStatus      @default(DRAFT)
+  riskLevel       String?            @db.VarChar(30)
+  employee        Employee           @relation(fields: [employeeId], references: [id])
+  creator         User               @relation("RequestCreator", fields: [creatorId], references: [id])
+  template        TaskTemplate?      @relation(fields: [templateId], references: [id])
+  tasks           OffboardingTask[]
+  handovers       Handover[]
+  revocations     AccessRevocation[]
+  documents       Document[]
+  approvals       Approval[]
+  comments        Comment[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  analyses        AIAnalysis[]
+  resignationRequest ResignationRequest?
+  financialReconciliations FinancialReconciliation[]
+  exceptions      ProcessException[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([employeeId, status])
+  @@index([lastWorkingDate])
+  @@map("offboarding_requests")
+}
+
+model TaskTemplate {
+  id          String               @id @default(uuid()) @db.Char(36)
+  name        String
+  description String?
+  isActive    Boolean              @default(true)
+  items       TaskTemplateItem[]
+  requests    OffboardingRequest[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("task_templates")
+}
+
+model TaskTemplateItem {
+  id          String            @id @default(uuid()) @db.Char(36)
+  templateId  String            @db.Char(36)
+  title       String
+  description String?
+  department  String?
+  isRequired  Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  template    TaskTemplate      @relation(fields: [templateId], references: [id])
+  tasks       OffboardingTask[]
+  createdAt   DateTime          @default(now())
+
+  @@map("task_template_items")
+}
+
+model OffboardingTask {
+  id             String              @id @default(uuid()) @db.Char(36)
+  requestId      String              @db.Char(36)
+  templateItemId String?             @db.Char(36)
+  assigneeId     String?             @db.Char(36)
+  title          String
+  description    String?
+  dueDate        DateTime?
+  status         TaskStatus          @default(TODO)
+  completedAt    DateTime?
+  request        OffboardingRequest  @relation(fields: [requestId], references: [id])
+  templateItem   TaskTemplateItem?   @relation(fields: [templateItemId], references: [id])
+  assignee       User?               @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([requestId, status])
+  @@index([assigneeId, dueDate])
+  @@map("offboarding_tasks")
+}
+
+model Handover {
+  id          String             @id @default(uuid()) @db.Char(36)
+  requestId   String             @db.Char(36)
+  title       String
+  description String?
+  status      HandoverStatus     @default(DRAFT)
+  confirmedAt DateTime?
+  request     OffboardingRequest @relation(fields: [requestId], references: [id])
+  items       HandoverItem[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@map("handovers")
+}
+
+model HandoverItem {
+  id          String   @id @default(uuid()) @db.Char(36)
+  handoverId  String   @db.Char(36)
+  title       String
+  description String?
+  receiver    String?
+  status      String   @default("PENDING")
+  evidenceUrl String?  @db.Text
+  handover    Handover @relation(fields: [handoverId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("handover_items")
+}
+
+model Asset {
+  id           String            @id @default(uuid()) @db.Char(36)
+  assetCode    String            @unique
+  name         String
+  category     String
+  serialNumber String?
+  status       AssetStatus       @default(AVAILABLE)
+  assignments  AssetAssignment[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@map("assets")
+}
+
+model AssetAssignment {
+  id         String    @id @default(uuid()) @db.Char(36)
+  assetId    String    @db.Char(36)
+  employeeId String    @db.Char(36)
+  assignedAt DateTime  @default(now())
+  returnedAt DateTime?
+  condition  String?
+  note       String?
+  asset      Asset     @relation(fields: [assetId], references: [id])
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([employeeId, returnedAt])
+  @@map("asset_assignments")
+}
+
+model AccessAccount {
+  id           String             @id @default(uuid()) @db.Char(36)
+  employeeCode String
+  systemName   String
+  accountName  String
+  email        String?
+  status       String             @default("ACTIVE")
+  revocations  AccessRevocation[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@map("access_accounts")
+}
+
+model AccessRevocation {
+  id          String             @id @default(uuid()) @db.Char(36)
+  requestId   String             @db.Char(36)
+  accountId   String             @db.Char(36)
+  status      RevocationStatus   @default(PENDING)
+  revokedAt   DateTime?
+  performedBy String?
+  note        String?
+  request     OffboardingRequest @relation(fields: [requestId], references: [id])
+  account     AccessAccount      @relation(fields: [accountId], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([requestId, accountId])
+  @@map("access_revocations")
+}
+
+model Document {
+  id         String             @id @default(uuid()) @db.Char(36)
+  requestId  String             @db.Char(36)
+  name       String
+  fileUrl    String             @db.Text
+  mimeType   String?
+  type       DocumentType       @default(OTHER)
+  uploadedBy String?
+  request    OffboardingRequest @relation(fields: [requestId], references: [id])
+  createdAt  DateTime           @default(now())
+
+  @@map("documents")
+}
+
+model Approval {
+  id         String             @id @default(uuid()) @db.Char(36)
+  requestId  String             @db.Char(36)
+  approverId String             @db.Char(36)
+  step       Int
+  status     ApprovalStatus     @default(PENDING)
+  note       String?            @db.Text
+  approvedAt DateTime?
+  request    OffboardingRequest @relation(fields: [requestId], references: [id])
+  approver   User               @relation(fields: [approverId], references: [id])
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@unique([requestId, step])
+  @@map("approvals")
+}
+
+model Comment {
+  id        String             @id @default(uuid()) @db.Char(36)
+  requestId String             @db.Char(36)
+  userId    String             @db.Char(36)
+  content   String             @db.Text
+  request   OffboardingRequest @relation(fields: [requestId], references: [id])
+  user      User               @relation(fields: [userId], references: [id])
+  createdAt DateTime           @default(now())
+
+  @@map("comments")
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Char(36)
+  userId    String              @db.Char(36)
+  requestId String?             @db.Char(36)
+  title     String
+  message   String              @db.Text
+  isRead    Boolean             @default(false)
+  user      User                @relation(fields: [userId], references: [id])
+  request   OffboardingRequest? @relation(fields: [requestId], references: [id])
+  createdAt DateTime            @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String              @id @default(uuid()) @db.Char(36)
+  requestId String?             @db.Char(36)
+  userId    String?             @db.Char(36)
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  userAgent String?             @db.Text
+  request   OffboardingRequest? @relation(fields: [requestId], references: [id])
+  user      User?               @relation(fields: [userId], references: [id])
+  createdAt DateTime            @default(now())
+
+  @@index([requestId, createdAt])
+  @@map("audit_logs")
+}
+
+model AIAnalysis {
+  id          String             @id @default(uuid()) @db.Char(36)
+  requestId   String             @db.Char(36)
+  status      AnalysisStatus     @default(PENDING)
+  riskLevel   String?
+  summary     String?            @db.Text
+  suggestions Json?
+  missingInfo Json?
+  modelName   String?
+  request     OffboardingRequest @relation(fields: [requestId], references: [id])
+  createdAt   DateTime           @default(now())
+
+  @@map("ai_analyses")
+}
+
+model KnowledgeChunk {
+  id          String   @id @default(uuid()) @db.Char(36)
+  sourceName  String
+  content     String   @db.LongText
+  embeddingId String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@map("knowledge_chunks")
+}
+
+model AIConversation {
+  id        String   @id @default(uuid()) @db.Char(36)
+  userId    String   @db.Char(36)
+  title     String?
+  messages  Json
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_conversations")
+}
+
+model ResignationRequest {
+  id                    String              @id @default(uuid()) @db.Char(36)
+  requestCode           String              @unique
+  employeeId            String              @db.Char(36)
+  reason                String              @db.Text
+  resignationDate       DateTime
+  lastWorkingDate       DateTime
+  attachmentUrl         String?             @db.Text
+  status                String              @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  approverId            String?             @db.Char(36)
+  approverNote          String?             @db.Text
+  approvedAt            DateTime?
+  offboardingRequestId  String?             @unique @db.Char(36)
+  employee              Employee            @relation(fields: [employeeId], references: [id])
+  offboardingRequest    OffboardingRequest? @relation(fields: [offboardingRequestId], references: [id])
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([employeeId, status])
+  @@map("resignation_requests")
+}
+
+model FinancialReconciliation {
+  id               String             @id @default(uuid()) @db.Char(36)
+  requestId        String             @db.Char(36)
+  advanceAmount    Decimal            @default(0) @db.Decimal(12, 2)
+  debtAmount       Decimal            @default(0) @db.Decimal(12, 2)
+  unsettledExpense Decimal            @default(0) @db.Decimal(12, 2)
+  totalDeduction   Decimal            @default(0) @db.Decimal(12, 2)
+  status           String             @default("PENDING") // PENDING, CLEARED, DISPUTED
+  note             String?            @db.Text
+  clearedBy        String?
+  clearedAt        DateTime?
+  request          OffboardingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([requestId, status])
+  @@map("financial_reconciliations")
+}
+
+model ProcessException {
+  id             String             @id @default(uuid()) @db.Char(36)
+  requestId      String             @db.Char(36)
+  title          String
+  description    String?            @db.Text
+  type           String             @default("OTHER") // ASSET_LOST, HANDOVER_DELAYED, ACCOUNT_BLOCKED, DEBT_UNRESOLVED, OTHER
+  priority       String             @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  status         String             @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, EXEMPTED
+  assignedTo     String?
+  resolutionNote String?            @db.Text
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  request        OffboardingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([requestId, status])
+  @@map("process_exceptions")
+}
